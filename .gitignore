@@ -1,0 +1,9 @@
+# 忽略所有 pyc 文件
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# 如果用 VS Code 或 Jupyter
+.vscode/
+.ipynb_checkpoints/
