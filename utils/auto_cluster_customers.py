@@ -5,7 +5,7 @@ from sklearn.metrics import silhouette_score
 import matplotlib.pyplot as plt
 
 # === 1. 读取数据 ===
-df = pd.read_csv('C:\Users\12448\OneDrive - MasterWai\Code\ALNS2\data\C101network_charge_test.txt')
+df = pd.read_csv(r'C:\Users\12448\OneDrive - MasterWai\Code\ALNS2\data\C101network_charge_test.txt')
 
 # === 2. 去除充电站点 ===
 df_customers = df[df['TYPE'] != 'charging_station'].copy()

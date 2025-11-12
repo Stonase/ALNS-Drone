@@ -11,3 +11,5 @@ class VRPData:
         self.dist_matrix = []     # 距离矩阵(numpy)
         self.demands = []         # 节点需求列表
         self.coords = []          # 节点坐标列表
+
+        self.nearest_charge = {}  # 最近充电站

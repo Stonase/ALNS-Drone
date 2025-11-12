@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import random
 from .data_structure import VRPData
 from .solver import ALNSSolver
-from .utils.helpers import solution_cost
+from .utils.helpers import solution_cost, route_feasibility_check
  
 def visualize_solution(data: VRPData, solution: list[list[int]], save_path: str = None):
     """整合路径绘制的可视化函数"""
@@ -89,3 +89,22 @@ def print_cost_breakdown(solver: ALNSSolver, solution: list[list[int]]):
     print(f"行驶距离: {total_distance:.1f}km × {solver.cfg.distance_cost} = {total_distance * solver.cfg.distance_cost:.1f}元")
     print(f"充电次数: {charging_count} × {solver.cfg.charging_cost} = {charging_count * solver.cfg.charging_cost}元")
     print(f"总运营成本: {solution_cost(solver.data, solver.cfg, solution):.1f}元")
+
+
+def print_routes(solver: ALNSSolver, solution: list[list[int]]):
+    """逐车打印每辆无人机的路径及摘要信息"""
+    data = solver.data
+    cfg = solver.cfg
+    print("\n[每辆无人机路径]")
+    for idx, route in enumerate(solution):
+        if len(route) <= 2:
+            continue
+        # 计算路径距离
+        dist = sum(data.dist_matrix[a][b] for a, b in zip(route[:-1], route[1:]))
+        # 充电站次数
+        ch_count = sum(1 for n in route if n in data.charge_ids)
+        # 可行性与结束电量比
+        feasible, bat_ratio = route_feasibility_check(data, cfg, route)
+        route_str = ' -> '.join(str(n) for n in route)
+        print(f"车辆 {idx+1}: 路径: {route_str}")
+        print(f"  距离: {dist:.1f} km, 充电次数: {ch_count}, 结束电量比: {bat_ratio:.2f}, 可行: {feasible}")

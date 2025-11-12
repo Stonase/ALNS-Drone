@@ -13,7 +13,7 @@ def load_data(file_path: str) -> VRPData:
     data = VRPData()
     
     # 原始数据读取
-    raw_df = pd.read_csv(file_path, sep=',', skipinitialspace=True)
+    raw_df = pd.read_csv(r'C:\Users\12448\OneDrive - MasterWai\Code\ALNS2\data\C101network_charge_test.txt')
     data.node_df = raw_df
     
     # 节点分类处理
@@ -43,6 +43,22 @@ def load_data(file_path: str) -> VRPData:
                 data.coords[i][1]-data.coords[j][1]
             )
     
+    # 为每个客户计算最近充电站
+    for cust in data.customer_ids:
+        min_dist = float('inf')
+        nearest_station = None
+        
+        for chg in data.charge_ids:
+            d = data.dist_matrix[cust][chg]
+            if d < min_dist:
+                min_dist = d
+                nearest_station = chg
+        
+        if nearest_station is None:
+            data.nearest_charge[cust] = None
+        else:
+            data.nearest_charge[cust] = nearest_station
+
     # 需求数据映射
     data.demands = [0] + [row['DEMAND'] for _, row in raw_df.iterrows() if row['CUST NO'] != 1]
     

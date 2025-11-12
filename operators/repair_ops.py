@@ -19,7 +19,7 @@ def greedy_insert(data, cfg, destroyed, removed):
             destroyed[best_route].insert(best_pos, customer)
     return destroyed
 
-def _vehicle_reinsert(data, cfg, destroyed, removed):
+def vehicle_reinsert(data, cfg, destroyed, removed):
     """车辆级修复：将被移除节点重新分配到其他车辆"""
     # 阶段1：尝试插入现有车辆
     temp_solution = greedy_insert(data, cfg, destroyed, removed)
@@ -51,4 +51,4 @@ def _vehicle_reinsert(data, cfg, destroyed, removed):
                         break
     return temp_solution
 
-REPAIR_OPERATORS = [greedy_insert,_vehicle_reinsert]
+REPAIR_OPERATORS = [greedy_insert,vehicle_reinsert]
