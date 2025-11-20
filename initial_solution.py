@@ -10,6 +10,10 @@ def generate_initial_solution(data, cfg):
 
     while remaining:
         sorted_customers = nearest_neighbor_sort(data, remaining, depot)
+        if routes[used_vehicle_count-1]==[depot,depot]:
+            routes[used_vehicle_count-1].insert(1, sorted_customers[0])
+            remaining.remove(sorted_customers[0])
+            sorted_customers.remove(sorted_customers[0])
         for cust in sorted_customers.copy():
             testing_resetcust = True
             testing_resetall = False
@@ -18,14 +22,17 @@ def generate_initial_solution(data, cfg):
                 # 遍历所有已用车辆，寻找最优插入位置
                 for route_idx in range(used_vehicle_count):
                     route = routes[route_idx]
-                    start_pos = must_insert_after[route_idx] + 1
+                    start_pos = must_insert_after[route_idx]
                     for pos in range(start_pos, len(route)):
                         new_route = route[:pos] + [cust] + route[pos:]
+                        # route_demand = sum(data.demands[n] for n in routes[best_route] if n in data.customer_ids)
                         feasible, bat_ratio = route_feasibility_check(data, cfg, new_route)
                         if feasible:
-                            cost = solution_cost(data, cfg, [new_route])
+                            routes_tmp = copy.deepcopy(routes)
+                            routes_tmp[route_idx] = new_route
+                            cost = solution_cost(data, cfg, routes_tmp)
                             if cost < best_cost:
-                                best_cost, best_route, best_pos,best_bat_ratio = cost, route_idx, pos, bat_ratio
+                                best_cost, best_route, best_pos, best_bat_ratio = cost, route_idx, pos, bat_ratio
 
                 # 有可以插的位置就把客户插进去
                 if best_route is not None:
@@ -66,17 +73,35 @@ def generate_initial_solution(data, cfg):
                         # 没有备用车辆，尝试对已有路线插入换电站以腾出可行空间
                         inserted = False
                         for ridx in range(used_vehicle_count):
-                            success, new_route = charging_insert(data, cfg, routes[ridx])
+                            success, tmp_route = charging_insert(data, cfg, routes[ridx])
                             if success:
-                                routes[ridx] = new_route
-                                inserted = True
-                                testing_resetall = True
-                                break
-                        if inserted:
-                            # 进行了换电站插入，让外层循环重新尝试分配当前客户
-                            continue
-                        else:
-                            raise ValueError(f"客户 {cust} 无法分配，且无可用车辆或换电站插入失败")
+                                best_cost, best_pos = float('inf'), None
+                                for pos in range(1, len(route)):
+                                    new_route = tmp_route[:pos] + [cust] + tmp_route[pos:]
+                                    # route_demand = sum(data.demands[n] for n in routes[best_route] if n in data.customer_ids)
+                                    feasible, _ = route_feasibility_check(data, cfg, new_route)
+                                    if feasible:
+                                        cost = solution_cost(data, cfg, [new_route])
+                                        if cost < best_cost:
+                                            best_cost, best_pos = cost, route_idx
+
+                                # 有可以插的位置就把客户插进去
+                                if best_pos is not None:
+                                    # 插入客户
+                                    tmp_route.insert(best_pos, cust)
+                                    routes[ridx] = tmp_route
+                                    remaining.remove(cust)
+                                    break
+                                else:
+                                    raise ValueError(f"客户 {cust} 无法分配，且无可用车辆或换电站插入失败")
+                                
+                                # routes[ridx] = new_route
+                                # inserted = True
+                                # testing_resetall = True
+                                # break
+                        # if inserted:
+                        #     # 进行了换电站插入，让外层循环重新尝试分配当前客户
+                        #     continue                    
             if testing_resetall:
                 break
     return routes
