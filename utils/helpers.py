@@ -1,3 +1,5 @@
+import copy
+
 def route_feasibility_check(data, cfg, route):
     """路径可行性验证"""
     # 1. 检查路径首尾是否为车场
@@ -5,11 +7,7 @@ def route_feasibility_check(data, cfg, route):
         return (False, None)
     
     # 2. 检查车辆容量
-    total_demand = sum(
-        data.demands[node]
-        for node in route
-        if node in data.customer_ids
-    )
+    total_demand = sum(data.demands[node] for node in route if node in data.customer_ids)
     if total_demand > cfg.car_capacity:
         return (False, None)
     
@@ -92,3 +90,172 @@ def solution_cost(data, cfg, solution):
     charging_count = sum(1 for route in solution for node in route if node in data.charge_ids)
     total_cost += charging_count * cfg.charging_cost
     return total_cost
+
+def handle_unassigned_customers(data, cfg, solution):
+    """
+    #1122 目前新车安排的逻辑还是比较牵强。
+    处理未分配客户：检查并尝试用新车安排未分配客户
+    参数：
+        data: 数据对象
+        cfg: 配置对象
+        solution: 当前解决方案（路径列表）
+    返回：
+        processed_solution: 处理后的解决方案
+        has_unassigned: 是否仍有未分配客户（布尔值）
+    """
+    # 步骤1：检查未分配客户
+    assigned = set()
+    for route in solution:
+        assigned.update(node for node in route if node in data.customer_ids)
+    unassigned = list(set(data.customer_ids) - assigned)
+    if not unassigned:
+        return solution, False  # 无未分配客户，直接返回
+
+    # 步骤2：统计当前已用车辆数（非空车）
+    used_vehicles = sum(1 for route in solution if len(route) > 2)
+    max_vehicles = cfg.vehicle_num
+
+    # 步骤3：若有剩余车辆额度，尝试用新车安排
+    if used_vehicles < max_vehicles:
+        # 为未分配客户创建初始路径（车场->客户->车场）
+        new_route = [data.depot_id] + unassigned + [data.depot_id]
+        feasible, _ = route_feasibility_check(data, cfg, new_route)
+
+        # 若路径不可行，按最近邻拆分客户
+        if not feasible:
+            from ..initial_solution import nearest_neighbor_sort
+            sorted_unassigned = nearest_neighbor_sort(data, unassigned, data.depot_id)
+            # 逐步减少客户数量直到路径可行
+            for k in range(len(sorted_unassigned), 0, -1):
+                partial_route = [data.depot_id] + sorted_unassigned[:k] + [data.depot_id]
+                if route_feasibility_check(data, cfg, partial_route)[0]:
+                    new_route = partial_route
+                    unassigned = sorted_unassigned[k:]  # 更新剩余未分配客户
+                    break
+            else:
+                # 即使单客户也不可行（极端情况），返回原解决方案
+                return solution, True
+
+        # 将新车路径插入解决方案（替换第一个空车位置）
+        processed_solution = copy.deepcopy(solution)
+        empty_veh_idx = next(i for i, r in enumerate(processed_solution) if len(r) <= 2)
+        processed_solution[empty_veh_idx] = new_route
+
+        # 递归处理剩余未分配客户（若仍有剩余且车辆充足）
+        if unassigned and (used_vehicles + 1) < max_vehicles:
+            return handle_unassigned_customers(data, cfg, processed_solution)
+        return processed_solution, bool(unassigned)
+
+    # 步骤4：无剩余车辆，返回原解决方案
+    return solution, True
+
+def check_unassigned_customers(data, solution):
+    """检查是否有未分配的客户"""
+    assigned = set()
+    for route in solution:
+        assigned.update(node for node in route if node in data.customer_ids)
+    unassigned = set(data.customer_ids) - assigned
+    return list(unassigned)
+
+def rearrange_empty_vehicles(solution):
+    """将空车（仅含首尾车场的路径）移到解的末尾"""
+    non_empty = [route for route in solution if len(route) > 2]  # 非空车辆
+    empty = [route for route in solution if len(route) <= 2]      # 空车
+    return non_empty + empty  # 非空车在前，空车在后
+
+
+def adjust_charge_stations(data, cfg, route):
+    """
+    调整路径中现有换电站的位置至最优（优先调整，其次添加）
+    核心目标：换电站前后均保持电量冗余，适应负载变化导致的能耗差异
+    返回：(是否成功, 调整后的路径)
+    """
+    # 1. 提取路径中现有换电站及其位置
+    existing_charges = [(i, node) for i, node in enumerate(route) if node in data.charge_ids]
+    original_route = copy.deepcopy(route)
+    best_route = None
+    max_redundancy = -float('inf')  # 冗余度评分（越高越好）
+
+    # 2. 尝试调整现有换电站位置
+    if existing_charges:
+        for charge_pos, charge_node in existing_charges:
+            # 移除当前换电站，准备重新插入
+            temp_route = original_route[:charge_pos] + original_route[charge_pos+1:]
+            
+            # 遍历所有可能的插入位置（排除首尾车场）
+            for new_pos in range(1, len(temp_route)-1):
+                # 只在客户节点后插入（避免连续充电站）
+                if temp_route[new_pos] not in data.customer_ids:
+                    continue
+                
+                # 插入换电站并验证可行性
+                candidate_route = temp_route[:new_pos+1] + [charge_node] + temp_route[new_pos+1:]
+                feasible, _ = route_feasibility_check(data, cfg, candidate_route)
+                if not feasible:
+                    continue
+                
+                # 计算换电站前后的电量冗余度
+                pre_redundancy, post_redundancy = calculate_redundancy(data, cfg, candidate_route, new_pos+1)
+                # 综合冗余评分：更关注前向冗余（初始负载高，能耗快）
+                total_redundancy = 0.7 * pre_redundancy + 0.3 * post_redundancy
+                
+                # 保留冗余度最高的路径
+                if total_redundancy > max_redundancy:
+                    max_redundancy = total_redundancy
+                    best_route = candidate_route
+
+    # 3. 若调整现有换电站成功，返回最优路径
+    if best_route is not None:
+        return (True, best_route)
+    
+    # 4. 调整失败，尝试添加新换电站（复用现有充电插入逻辑）
+    return charging_insert(data, cfg, original_route)
+
+
+def calculate_redundancy(data, cfg, route, charge_pos):
+    """
+    计算换电站位置的电量冗余度：
+    - 前向冗余：到达换电站时的剩余电量（相对于最低安全阈值）
+    - 后向冗余：离开换电站后到终点的剩余电量（相对于最低安全阈值）
+    """
+    # 前向计算：从起点到换电站的电量变化
+    current_energy = cfg.battery_cap
+    current_load = sum(data.demands[node] for node in route if node in data.customer_ids)
+    
+    for i in range(1, charge_pos + 1):
+        prev_node = route[i-1]
+        curr_node = route[i]
+        
+        # 到达客户点时卸货（降低负载）
+        if curr_node in data.customer_ids:
+            current_load -= data.demands[curr_node]
+        
+        # 计算能耗
+        distance = data.dist_matrix[prev_node][curr_node]
+        energy_cost = distance * (cfg.base_energy + cfg.load_energy * current_load)
+        current_energy -= energy_cost
+        
+        # 到达换电站时停止计算
+        if i == charge_pos:
+            break
+    
+    # 前向冗余：实际剩余电量 - 安全阈值（预留10%电量）
+    pre_redundancy = current_energy - (cfg.battery_cap * 0.1)
+
+    # 后向计算：从换电站到终点的电量变化（从满电开始）
+    current_energy = cfg.battery_cap  # 换电站后电量重置为满电
+    for i in range(charge_pos + 1, len(route)):
+        prev_node = route[i-1]
+        curr_node = route[i]
+        
+        if curr_node in data.customer_ids:
+            current_load -= data.demands[curr_node]
+        
+        distance = data.dist_matrix[prev_node][curr_node]
+        energy_cost = distance * (cfg.base_energy + cfg.load_energy * current_load)
+        current_energy -= energy_cost
+    
+    # 后向冗余：实际剩余电量 - 安全阈值
+    post_redundancy = current_energy - (cfg.battery_cap * 0.1)
+    
+    return (max(pre_redundancy, 0), max(post_redundancy, 0))  # 负冗余按0计算

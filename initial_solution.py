@@ -45,6 +45,7 @@ def generate_initial_solution(data, cfg):
                     if best_bat_ratio is not None and best_bat_ratio < low_thresh:
                         success, new_route = charging_insert(data, cfg, routes[best_route])
                         if success:
+                            #插换电站并记录最后一个换电站的位置
                             routes[best_route] = new_route
                             cs_ids = set(data.charge_ids)          # 转成集合，查找 O(1)
                             reverse = new_route[::-1]

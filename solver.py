@@ -1,7 +1,7 @@
 from .initial_solution import generate_initial_solution
 from .operators.destroy_ops import DESTROY_OPERATORS
 from .operators.repair_ops import REPAIR_OPERATORS
-from .utils.helpers import route_feasibility_check,solution_cost
+from .utils.helpers import solution_cost, handle_unassigned_customers, rearrange_empty_vehicles
 from .utils.adaptive import select_operator, update_weights, acceptance_criterion, temperature
 
 class ALNSSolver:
@@ -10,7 +10,7 @@ class ALNSSolver:
         self.cfg = config
         self.destroy_ops = DESTROY_OPERATORS
         self.repair_ops = REPAIR_OPERATORS
-        self.destroy_weights = [5, 20]
+        self.destroy_weights = [5, 20, 0]
         self.repair_weights = [10, 10]
         self.best_solution = None
         self.current_solution = None
@@ -22,8 +22,15 @@ class ALNSSolver:
         for iter in range(self.cfg.max_iter):
             d_idx = select_operator(self.destroy_weights)
             r_idx = select_operator(self.repair_weights)
-            destroyed, removed = self.destroy_ops[d_idx](self.data, self.current_solution)
+            destroyed, removed = self.destroy_ops[d_idx](self.data, self.cfg, self.current_solution)
             new_solution = self.repair_ops[r_idx](self.data, self.cfg, destroyed, removed)
+
+            #解的后处理（含重新排列解）
+            new_solution, has_unassigned = handle_unassigned_customers(self.data, self.cfg, new_solution)
+            if has_unassigned:
+                print(f"迭代{iter}：存在未分配客户，车辆资源不足")
+                return self.current_solution
+            new_solution = rearrange_empty_vehicles(new_solution)
 
             curr_cost = solution_cost(self.data, self.cfg, self.current_solution)
             new_cost = solution_cost(self.data, self.cfg, new_solution)
@@ -33,5 +40,6 @@ class ALNSSolver:
                 self.current_solution = new_solution
                 if new_cost < solution_cost(self.data, self.cfg, self.best_solution):
                     self.best_solution = new_solution
+        
 
         return self.best_solution
