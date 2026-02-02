@@ -163,53 +163,133 @@ def rearrange_empty_vehicles(solution):
     empty = [route for route in solution if len(route) <= 2]      # 空车
     return non_empty + empty  # 非空车在前，空车在后
 
+import copy
 
 def adjust_charge_stations(data, cfg, route):
     """
-    调整路径中现有换电站的位置至最优（优先调整，其次添加）
-    核心目标：换电站前后均保持电量冗余，适应负载变化导致的能耗差异
-    返回：(是否成功, 调整后的路径)
+    调整路径中现有换电站的位置至最优
+    修改版：
+    1. 引入成本导向：优先考虑行驶距离成本。
+    2. 安全底线：对剩余电量低于安全阈值（10%）的方案施加重罚。
+    3. 保留用户逻辑：使用 (0.7*pre + 0.3*post) 作为优选奖励，倾向于前向冗余。
     """
     # 1. 提取路径中现有换电站及其位置
     existing_charges = [(i, node) for i, node in enumerate(route) if node in data.charge_ids]
+    
+    # 若无充电站，回退到插入逻辑
+    if not existing_charges:
+        return charging_insert(data, cfg, route)
+
     original_route = copy.deepcopy(route)
     best_route = None
-    max_redundancy = -float('inf')  # 冗余度评分（越高越好）
-
-    # 2. 尝试调整现有换电站位置
-    if existing_charges:
-        for charge_pos, charge_node in existing_charges:
-            # 移除当前换电站，准备重新插入
-            temp_route = original_route[:charge_pos] + original_route[charge_pos+1:]
+    min_score = float('inf')  # 评分越低越好
+    
+    # 2. 遍历每一个现有的充电站，尝试将其移动到更优位置
+    for charge_pos, charge_node in existing_charges:
+        # A. 临时移除当前充电站
+        temp_route = original_route[:charge_pos] + original_route[charge_pos+1:]
+        
+        # B. 遍历所有可能的插入位置
+        for new_pos in range(1, len(temp_route) - 1):
+            # 避免在其他充电站紧后插入
+            if temp_route[new_pos] in data.charge_ids:
+                continue
             
-            # 遍历所有可能的插入位置（排除首尾车场）
-            for new_pos in range(1, len(temp_route)-1):
-                # 只在客户节点后插入（避免连续充电站）
-                if temp_route[new_pos] not in data.customer_ids:
-                    continue
-                
-                # 插入换电站并验证可行性
-                candidate_route = temp_route[:new_pos+1] + [charge_node] + temp_route[new_pos+1:]
-                feasible, _ = route_feasibility_check(data, cfg, candidate_route)
-                if not feasible:
-                    continue
-                
-                # 计算换电站前后的电量冗余度
-                pre_redundancy, post_redundancy = calculate_redundancy(data, cfg, candidate_route, new_pos+1)
-                # 综合冗余评分：更关注前向冗余（初始负载高，能耗快）
-                total_redundancy = 0.7 * pre_redundancy + 0.3 * post_redundancy
-                
-                # 保留冗余度最高的路径
-                if total_redundancy > max_redundancy:
-                    max_redundancy = total_redundancy
-                    best_route = candidate_route
+            # 构造候选路径
+            candidate_route = temp_route[:new_pos+1] + [charge_node] + temp_route[new_pos+1:]
+            
+            # C. 可行性检查
+            is_feasible, _ = route_feasibility_check(data, cfg, candidate_route)
+            if not is_feasible:
+                continue
+            
+            # D. 计算核心指标
+            
+            # 1. 运营成本 (Cost)：解决绕路问题的关键
+            # 直接计算新路径的成本（距离费+充电费等）
+            cost = solution_cost(data, cfg, [candidate_route])
+            
+            # 2. 冗余度计算
+            # calculate_redundancy 内部已减去 10% 的安全阈值
+            pre_redundancy, post_redundancy = calculate_redundancy(data, cfg, candidate_route, new_pos+1)
+            
+            # 3. 安全短板 (Safety Floor)
+            min_redundancy = min(pre_redundancy, post_redundancy)
+            
+            # 4. 加权冗余度 (User's Formula) - 用作奖励
+            # 保留您要求的逻辑：更看重到达充电站前的冗余
+            weighted_redundancy = 0.7 * pre_redundancy + 0.3 * post_redundancy
+            
+            # E. 综合评分 (Score Calculation)
+            penalty = 0
+            
+            # 惩罚机制：如果任何一段的电量跌破安全线(10%)，施加惩罚
+            # 这能解决“结束电量比: 0.01”的危险情况
+            if min_redundancy <= 0:
+                penalty = 10000.0
+            
+            # 评分公式：Score = 成本 + 惩罚 - (冗余奖励 * 权重)
+            # 权重设为 10.0，意味着 0.1 的冗余度优势可以抵消约 1.0 元的距离成本
+            # 这样既不会为了微小的电量优势绕远路，也能在同等距离下选电量更好的
+            score = cost + penalty - (weighted_redundancy * 10.0)
+            
+            if score < min_score:
+                min_score = score
+                best_route = candidate_route
 
-    # 3. 若调整现有换电站成功，返回最优路径
+    # 3. 返回最优结果
     if best_route is not None:
         return (True, best_route)
     
-    # 4. 调整失败，尝试添加新换电站（复用现有充电插入逻辑）
+    # 4. 调整失败，尝试插入新站点
     return charging_insert(data, cfg, original_route)
+
+# def adjust_charge_stations(data, cfg, route):
+#     """
+#     调整路径中现有换电站的位置至最优（优先调整，其次添加）
+#     核心目标：换电站前后均保持电量冗余，适应负载变化导致的能耗差异
+#     返回：(是否成功, 调整后的路径)
+#     """
+#     # 1. 提取路径中现有换电站及其位置
+#     existing_charges = [(i, node) for i, node in enumerate(route) if node in data.charge_ids]
+#     original_route = copy.deepcopy(route)
+#     best_route = None
+#     max_redundancy = -float('inf')  # 冗余度评分（越高越好）
+
+#     # 2. 尝试调整现有换电站位置
+#     if existing_charges:
+#         for charge_pos, charge_node in existing_charges:
+#             # 移除当前换电站，准备重新插入
+#             temp_route = original_route[:charge_pos] + original_route[charge_pos+1:]
+            
+#             # 遍历所有可能的插入位置（排除首尾车场）
+#             for new_pos in range(1, len(temp_route)-1):
+#                 # 只在客户节点后插入（避免连续充电站）
+#                 if temp_route[new_pos] not in data.customer_ids:
+#                     continue
+                
+#                 # 插入换电站并验证可行性
+#                 candidate_route = temp_route[:new_pos+1] + [charge_node] + temp_route[new_pos+1:]
+#                 feasible, _ = route_feasibility_check(data, cfg, candidate_route)
+#                 if not feasible:
+#                     continue
+                
+#                 # 计算换电站前后的电量冗余度
+#                 pre_redundancy, post_redundancy = calculate_redundancy(data, cfg, candidate_route, new_pos+1)
+#                 # 综合冗余评分：更关注前向冗余（初始负载高，能耗快）
+#                 total_redundancy = 0.7 * pre_redundancy + 0.3 * post_redundancy
+                
+#                 # 保留冗余度最高的路径
+#                 if total_redundancy > max_redundancy:
+#                     max_redundancy = total_redundancy
+#                     best_route = candidate_route
+
+#     # 3. 若调整现有换电站成功，返回最优路径
+#     if best_route is not None:
+#         return (True, best_route)
+    
+#     # 4. 调整失败，尝试添加新换电站（复用现有充电插入逻辑）
+#     return charging_insert(data, cfg, original_route)
 
 
 def calculate_redundancy(data, cfg, route, charge_pos):

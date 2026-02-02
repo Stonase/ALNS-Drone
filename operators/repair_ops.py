@@ -1,23 +1,84 @@
 from copy import deepcopy
-from ..utils.helpers import route_feasibility_check, solution_cost, adjust_charge_stations
+from ..utils.helpers import route_feasibility_check, solution_cost, adjust_charge_stations, charging_insert
+
+# def greedy_insert(data, cfg, destroyed, removed):
+#     for customer in removed:
+#         best_cost = float('inf')
+#         best_route, best_pos = None, None
+#         for route_idx, route in enumerate(destroyed):
+#             for pos in range(1, len(route)):
+#                 new_route = route[:pos] + [customer] + route[pos:]
+#                 feasible, _ = route_feasibility_check(data, cfg, new_route)
+#                 if feasible:
+#                     temp = deepcopy(destroyed)
+#                     temp[route_idx] = new_route
+#                     cost = solution_cost(data, cfg, temp)
+#                     if cost < best_cost:
+#                         best_cost, best_route, best_pos = cost, route_idx, pos
+#         if best_route is not None:
+#             destroyed[best_route].insert(best_pos, customer)
+#         # 若无法插入则需考虑该客户如何安放，但是目前暂未考虑
+#     return destroyed
+
 
 def greedy_insert(data, cfg, destroyed, removed):
-    for customer in removed:
+    """
+    贪婪插入算子（增强版）：
+    在尝试插入客户时，如果因电量不足导致不可行，会自动尝试插入充电站进行修复。
+    """
+    # 必须通过切片复制，防止在循环中修改列表导致遗漏
+    for customer in removed[:]: 
         best_cost = float('inf')
-        best_route, best_pos = None, None
+        best_route_idx = None
+        best_route = None
+        
+        # 遍历所有车辆（路径）
         for route_idx, route in enumerate(destroyed):
+            # 遍历路径中所有可能的插入位置（排除首尾）
             for pos in range(1, len(route)):
+                # 1. 基础插入尝试
                 new_route = route[:pos] + [customer] + route[pos:]
-                feasible, _ = route_feasibility_check(data, cfg, new_route)
-                if feasible:
-                    temp = deepcopy(destroyed)
-                    temp[route_idx] = new_route
-                    cost = solution_cost(data, cfg, temp)
+                
+                # 2. 检查可行性
+                is_feasible, _ = route_feasibility_check(data, cfg, new_route)
+                
+                final_route = None
+                
+                if is_feasible:
+                    final_route = new_route
+                else:
+                    # 3. 【关键改进】如果不可行，尝试插入充电站进行修复
+                    # 先尝试简单的充电插入
+                    repaired, repaired_route = charging_insert(data, cfg, new_route)
+                    if repaired:
+                        final_route = repaired_route
+                    else:
+                        # 如果简单插入不行，尝试更高级的调整（虽然慢一点，但在紧约束下很有必要）
+                        # 注意：为了性能，这里可以只用 charging_insert。
+                        # 如果需要更强能力，可以取消下面注释开启 adjust_charge_stations
+                        # repaired_adj, adj_route = adjust_charge_stations(data, cfg, new_route)
+                        # if repaired_adj:
+                        #     final_route = adj_route
+                        pass
+
+                # 4. 如果找到了可行方案（无论是直接的还是修复后的），计算成本
+                if final_route:
+                    # 临时构造解来计算成本增量
+                    # 优化：只计算增量成本可能更快，但这里直接用全量成本更准确
+                    temp_sol = [r for i, r in enumerate(destroyed) if i != route_idx] + [final_route]
+                    cost = solution_cost(data, cfg, temp_sol)
+                    
                     if cost < best_cost:
-                        best_cost, best_route, best_pos = cost, route_idx, pos
+                        best_cost = cost
+                        best_route_idx = route_idx
+                        best_route = final_route
+
+        # 执行最佳插入
         if best_route is not None:
-            destroyed[best_route].insert(best_pos, customer)
-        # 若无法插入则需考虑该客户如何安放，但是目前暂未考虑
+            destroyed[best_route_idx] = best_route
+            removed.remove(customer)
+        # 若无法插入，则该客户保留在 removed 中，等待后续处理（如新车分配）
+            
     return destroyed
 
 def vehicle_reinsert(data, cfg, destroyed, removed):

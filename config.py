@@ -11,6 +11,7 @@ class DataConfig:
 
         self.low_battery_threshold = 0.5  # 低电量阈值比例
         self.underutilized_threshold = 0.3  # 低利用率阈值比例
+        self.safe_battery_margin = 0.10  # 新增：保留10%的安全电量
 
         # 新增运营成本参数
         self.vehicle_fixed_cost = 800    # 元/车次（车辆使用固定成本）
