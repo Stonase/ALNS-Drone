@@ -9,8 +9,7 @@ from .visualization import print_routes
 def main():
     # 1. 加载数据
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(BASE_DIR, "data", "C101network_charge_test2.txt")
-    vrp_data = load_data(file_path)
+    vrp_data = load_data("C101network_charge_test.txt")
     
     # 2. 配置参数
     config = DataConfig()

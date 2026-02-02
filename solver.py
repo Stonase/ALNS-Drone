@@ -1,6 +1,7 @@
 from .initial_solution import generate_initial_solution
 from .operators.destroy_ops import DESTROY_OPERATORS
 from .operators.repair_ops import REPAIR_OPERATORS
+from .operators.local_search import local_search_2opt, local_search_prune_stations
 from .utils.helpers import solution_cost, handle_unassigned_customers, rearrange_empty_vehicles
 from .utils.adaptive import select_operator, update_weights, acceptance_criterion, temperature
 
@@ -25,10 +26,13 @@ class ALNSSolver:
             destroyed, removed = self.destroy_ops[d_idx](self.data, self.cfg, self.current_solution)
             new_solution = self.repair_ops[r_idx](self.data, self.cfg, destroyed, removed)
 
+            new_solution = local_search_2opt(self.data, self.cfg, new_solution)
+            new_solution = local_search_prune_stations(self.data, self.cfg, new_solution)
+
             #解的后处理（含重新排列解）
             new_solution, has_unassigned = handle_unassigned_customers(self.data, self.cfg, new_solution)
             if has_unassigned:
-                print(f"迭代{iter}：存在未分配客户，车辆资源不足")
+                print(f"迭代{iter}：存在未分配客户，无人机资源不足")
                 return self.current_solution
             new_solution = rearrange_empty_vehicles(new_solution)
 

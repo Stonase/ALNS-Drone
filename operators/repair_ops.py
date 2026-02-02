@@ -145,4 +145,4 @@ def nearest_adjust_insert(data, cfg, destroyed, removed):
     
     return destroyed
 
-REPAIR_OPERATORS = [greedy_insert,nearest_adjust_insert]
+REPAIR_OPERATORS = [greedy_insert,vehicle_reinsert]

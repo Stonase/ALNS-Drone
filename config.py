@@ -4,7 +4,7 @@ class DataConfig:
         self.vehicle_num = 5      # 可用车辆数
         self.car_capacity = 180   # 车辆容量
         self.battery_cap = 400    # 电池容量
-        self.base_energy = 1    # 基础能耗系数α
+        self.base_energy = 2    # 基础能耗系数α
         self.load_energy = 0.04    # 负载能耗系数β
         self.max_iter = 200      # 最大迭代次数
         # self.tabu_length = 50     # 禁忌表长度

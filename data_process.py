@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from .data_structure import VRPData
+from pathlib import Path
 
 def load_data(file_path: str) -> VRPData:
     """
@@ -11,9 +12,10 @@ def load_data(file_path: str) -> VRPData:
         VRPData: 结构化数据对象
     """
     data = VRPData()
-    
+    base_dir = Path(__file__).resolve().parent
+    data_path = base_dir / "data" / "C101network_charge_test.txt"
     # 原始数据读取
-    raw_df = pd.read_csv(r'C:\Users\12448\OneDrive - MasterWai\Code\ALNS2\data\C101network_charge_test.txt')
+    raw_df = pd.read_csv(data_path)
     data.node_df = raw_df
     
     # 节点分类处理
