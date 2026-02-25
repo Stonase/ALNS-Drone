@@ -108,3 +108,25 @@ def print_routes(solver: ALNSSolver, solution: list[list[int]]):
         route_str = ' -> '.join(str(n) for n in route)
         print(f"车辆 {idx+1}: 路径: {route_str}")
         print(f"  距离: {dist:.1f} km, 充电次数: {ch_count}, 结束电量比: {bat_ratio:.2f}, 可行: {feasible}")
+
+def plot_convergence(history: list, save_path: str = "convergence_curve.png"):
+    """绘制并保存收敛曲线图，不直接显示"""
+    # 切换为 Agg 后端，这样不会弹出窗口
+    import matplotlib
+    matplotlib.use('Agg') 
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(history, label='Best Cost', color='blue', linewidth=2)
+    plt.xlabel("Iteration", fontsize=12)
+    plt.ylabel("Total Operational Cost", fontsize=12)
+    plt.title("ALNS Convergence Curve", fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    
+    # 保存图片
+    plt.savefig(save_path, bbox_inches='tight', dpi=300)
+    print(f"收敛曲线已保存至: {save_path}")
+    
+    # 关闭画布，释放内存
+    plt.close()

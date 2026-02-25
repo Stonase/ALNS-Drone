@@ -1,5 +1,5 @@
 from copy import deepcopy
-from ..utils.helpers import route_feasibility_check, solution_cost, adjust_charge_stations, charging_insert
+from ..utils.helpers import route_feasibility_check, solution_cost, adjust_charge_stations, charging_insert, evaluate_insertion_with_cs
 
 # def greedy_insert(data, cfg, destroyed, removed):
 #     for customer in removed:
@@ -206,4 +206,135 @@ def nearest_adjust_insert(data, cfg, destroyed, removed):
     
     return destroyed
 
-REPAIR_OPERATORS = [greedy_insert,vehicle_reinsert]
+
+# 替换到 operators/repair_ops.py 中
+
+def greedy_cs_insert(data, cfg, destroyed, removed):
+    """基础贪婪修复：每次选择成本增加最小的位置插入，包含换电站的动态插入"""
+    to_insert = deepcopy(removed)
+    
+    while to_insert:
+        customer = to_insert.pop(0)
+        best_cost_increase = float('inf')
+        best_route_idx, best_route_obj = None, None
+        
+        for route_idx, route in enumerate(destroyed):
+            # 获取原路径成本
+            orig_cost = solution_cost(data, cfg, [route]) if len(route) > 2 else 0
+            
+            for pos in range(1, len(route)):
+                new_cost, new_route = evaluate_insertion_with_cs(data, cfg, route, customer, pos)
+                if new_route is not None:
+                    increase = new_cost - orig_cost
+                    if increase < best_cost_increase:
+                        best_cost_increase = increase
+                        best_route_idx = route_idx
+                        best_route_obj = new_route
+                        
+        if best_route_idx is not None:
+            destroyed[best_route_idx] = best_route_obj
+        else:
+            # 极端情况：所有车都插不进（如容量超限），开启一辆空车
+            empty_route_idx = next((i for i, r in enumerate(destroyed) if len(r) <= 2), None)
+            if empty_route_idx is not None:
+                new_r = [data.depot_id, customer, data.depot_id]
+                # 这里如果单跑一个客户都电量不够，可以再调一次加换电站逻辑
+                destroyed[empty_route_idx] = new_r
+            else:
+                to_insert.append(customer) # 车辆耗尽，死锁了，交由外层处理
+                break 
+    return destroyed
+
+def regret_2_cs_insert(data, cfg, destroyed, removed):
+    """后悔值修复：优先插入那些‘如果不插入最优位置，后续成本会剧增’的客户"""
+    to_insert = deepcopy(removed)
+    
+    while to_insert:
+        regret_list = [] # 存储 (regret_value, customer, best_route_idx, best_route_obj)
+        
+        for customer in to_insert:
+            costs = [] # 存储合法的插入结果 (cost_increase, route_idx, new_route_obj)
+            
+            for route_idx, route in enumerate(destroyed):
+                orig_cost = solution_cost(data, cfg, [route]) if len(route) > 2 else 0
+                best_inc_for_this_route = float('inf')
+                best_route_for_this_veh = None
+                
+                for pos in range(1, len(route)):
+                    new_cost, new_route = evaluate_insertion_with_cs(data, cfg, route, customer, pos)
+                    if new_route is not None:
+                        inc = new_cost - orig_cost
+                        if inc < best_inc_for_this_route:
+                            best_inc_for_this_route = inc
+                            best_route_for_this_veh = new_route
+                
+                if best_route_for_this_veh is not None:
+                    costs.append((best_inc_for_this_route, route_idx, best_route_for_this_veh))
+            
+            # 按成本增量升序排序，找最优和次优
+            costs.sort(key=lambda x: x[0])
+            if len(costs) >= 2:
+                regret = costs[1][0] - costs[0][0] # 次优 - 最优
+                regret_list.append((regret, customer, costs[0][1], costs[0][2]))
+            elif len(costs) == 1:
+                # 只有一条路能走，后悔值无穷大，必须马上安排
+                regret_list.append((float('inf'), customer, costs[0][1], costs[0][2]))
+        
+        if regret_list:
+            # 找到后悔值最大的客户，优先执行插入
+            regret_list.sort(key=lambda x: x[0], reverse=True)
+            best_choice = regret_list[0]
+            _, cust_to_insert, r_idx, r_obj = best_choice
+            
+            destroyed[r_idx] = r_obj
+            to_insert.remove(cust_to_insert)
+        else:
+            # 同样处理开启空车的逻辑
+            break
+            
+    return destroyed
+
+def cs_risk_priority_insert(data, cfg, destroyed, removed):
+    """风险优先修复：优先插入距离所有充电站最远的客户（电量风险最高）"""
+    to_insert = deepcopy(removed)
+    
+    # 计算每个客户到最近充电站的距离
+    cust_risk = {}
+    for cust in to_insert:
+        min_dist_to_cs = float('inf')
+        for cs_id in data.charge_ids:
+            dist = data.dist_matrix[cust][cs_id]
+            if dist < min_dist_to_cs:
+                min_dist_to_cs = dist
+        cust_risk[cust] = min_dist_to_cs
+        
+    # 按风险（距离）降序排序，最远的先插入
+    to_insert.sort(key=lambda x: cust_risk[x], reverse=True)
+    
+    # 排序后，执行基础贪婪插入逻辑
+    for customer in to_insert:
+        best_cost_increase = float('inf')
+        best_route_idx, best_route_obj = None, None
+        
+        for route_idx, route in enumerate(destroyed):
+            orig_cost = solution_cost(data, cfg, [route]) if len(route) > 2 else 0
+            for pos in range(1, len(route)):
+                new_cost, new_route = evaluate_insertion_with_cs(data, cfg, route, customer, pos)
+                if new_route is not None:
+                    inc = new_cost - orig_cost
+                    if inc < best_cost_increase:
+                        best_cost_increase = inc
+                        best_route_idx = route_idx
+                        best_route_obj = new_route
+                        
+        if best_route_idx is not None:
+            destroyed[best_route_idx] = best_route_obj
+        else:
+            # 开启新车逻辑
+            empty_route_idx = next((i for i, r in enumerate(destroyed) if len(r) <= 2), None)
+            if empty_route_idx is not None:
+                destroyed[empty_route_idx] = [data.depot_id, customer, data.depot_id]
+
+    return destroyed
+
+REPAIR_OPERATORS = [greedy_cs_insert, regret_2_cs_insert, cs_risk_priority_insert]

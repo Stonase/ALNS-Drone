@@ -1,4 +1,5 @@
 import copy
+from copy import deepcopy
 
 def route_feasibility_check(data, cfg, route):
     """路径可行性验证"""
@@ -243,6 +244,26 @@ def adjust_charge_stations(data, cfg, route):
     
     # 4. 调整失败，尝试插入新站点
     return charging_insert(data, cfg, original_route)
+
+def evaluate_insertion_with_cs(data, cfg, route, customer, pos):
+    """
+    评估在路径 route 的 pos 位置插入 customer 的成本。
+    如果因电量不可行，自动尝试插入换电站。
+    返回: (cost, new_route) 如果不可行返回 (float('inf'), None)
+    """
+    # 1. 尝试直接插入
+    new_route = route[:pos] + [customer] + route[pos:]
+    feasible, _ = route_feasibility_check(data, cfg, new_route)
+    if feasible:
+        return solution_cost(data, cfg, [new_route]), new_route
+    
+    # 2. 如果直接插入不可行，大概率是电量问题，尝试调整或加入换电站
+    # 注意：这里调用你现有的 adjust_charge_stations 函数
+    success, adjusted_route = adjust_charge_stations(data, cfg, new_route)
+    if success and route_feasibility_check(data, cfg, adjusted_route)[0]:
+        return solution_cost(data, cfg, [adjusted_route]), adjusted_route
+        
+    return float('inf'), None
 
 # def adjust_charge_stations(data, cfg, route):
 #     """

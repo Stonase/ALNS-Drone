@@ -15,10 +15,13 @@ class ALNSSolver:
         self.repair_weights = [10, 10]
         self.best_solution = None
         self.current_solution = None
+        self.history = [] # 用于记录每轮的最佳成本
 
     def solve(self):
         self.current_solution = generate_initial_solution(self.data, self.cfg)
         self.best_solution = self.current_solution.copy()
+        # 记录初始成本
+        self.history.append(solution_cost(self.data, self.cfg, self.best_solution))
 
         for iter in range(self.cfg.max_iter):
             d_idx = select_operator(self.destroy_weights)
@@ -38,6 +41,8 @@ class ALNSSolver:
 
             curr_cost = solution_cost(self.data, self.cfg, self.current_solution)
             new_cost = solution_cost(self.data, self.cfg, new_solution)
+            
+            self.history.append(solution_cost(self.data, self.cfg, self.best_solution))
 
             update_weights(self.destroy_weights, self.repair_weights, d_idx, r_idx, new_cost - curr_cost)
             if acceptance_criterion(new_cost, curr_cost, temperature(iter)):
@@ -45,5 +50,6 @@ class ALNSSolver:
                 if new_cost < solution_cost(self.data, self.cfg, self.best_solution):
                     self.best_solution = new_solution
         
+        print(f"算法结束，共迭代 {self.cfg.max_iter} 次，最终最佳成本为 {solution_cost(self.data, self.cfg, self.best_solution):.2f}")
 
         return self.best_solution
