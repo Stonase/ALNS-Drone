@@ -21,15 +21,15 @@ def main():
     solver = ALNSSolver(vrp_data, config)
     best_routes = solver.solve()
     
-    # # ==========================
-    # # 4. 对比组 B：GA 求解
-    # # ==========================
-    # print("\n" + "="*40)
-    # print("正在运行：GA (遗传算法)")
-    # print("="*40)
-    # ga_solver = GASolver(vrp_data, config)
-    # ga_best_routes = ga_solver.solve()
-    # print_cost_breakdown(ga_solver, ga_best_routes)
+    # ==========================
+    # 4. 对比组 B：GA 求解
+    # ==========================
+    print("\n" + "="*40)
+    print("正在运行：GA (遗传算法)")
+    print("="*40)
+    ga_solver = GASolver(vrp_data, config)
+    ga_best_routes = ga_solver.solve()
+    print_cost_breakdown(ga_solver, ga_best_routes)
 
 
     # 4. 输出结果

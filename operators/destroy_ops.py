@@ -1,33 +1,56 @@
 import copy, random, numpy as np
 from collections import defaultdict
 
-def random_remove(data, cfg, solution, q=5):
+def random_remove(data, cfg, solution, q=20):
     destroyed = copy.deepcopy(solution)
     removed = []
-    for _ in range(q):
-        route_idx = random.choice([i for i, r in enumerate(destroyed) if len(r) > 2])
-        node_idx = random.randint(1, len(destroyed[route_idx]) - 2)
-        removed.append(destroyed[route_idx].pop(node_idx))
+    
+    # 1. 收集所有合法的【客户节点】位置
+    removable_pool = []
+    for r_idx, route in enumerate(destroyed):
+        for pos in range(1, len(route) - 1):
+            # 核心修复：如果该节点不是客户（即为换电站），绝对不允许移除！
+            if route[pos] in data.customer_ids:
+                removable_pool.append((r_idx, pos))
+    
+    # 2. 确定要移除的数量，并随机选择
+    actual_q = min(q, len(removable_pool))
+    if actual_q == 0:
+        return destroyed, removed
+    to_remove = random.sample(removable_pool, actual_q)
+    
+    # 3. 按路径分组，并降序排序位置（从后往前pop，防止索引错位）
+    removal_plan = defaultdict(list)
+    for r_idx, pos in to_remove:
+        removal_plan[r_idx].append(pos)
+        
+    for r_idx in removal_plan:
+        for pos in sorted(removal_plan[r_idx], reverse=True):
+            removed.append(destroyed[r_idx].pop(pos))
+            
     return destroyed, removed
 
-def worst_energy_remove(data, cfg, solution, q=5):
+def worst_energy_remove(data, cfg, solution, q=20):
     """高能耗节点移除：避免索引越界"""
     energy_cost = {}
     
-    # 1. 收集所有有效位置的能耗差
+    # 1. 评估移除每个【客户节点】能节省的能耗（距离）
     for route_idx, route in enumerate(solution):
-        if len(route) <= 2:  # 跳过空路径和无效路径
+        if len(route) <= 2: 
             continue
-        for pos in range(1, len(route)-1):  # 仅处理中间节点
+        for pos in range(1, len(route)-1):  
+            # 核心修复：跳过换电站，只评估移除客户的能耗差
+            if route[pos] not in data.customer_ids:
+                continue
+                
             prev, curr, next_ = route[pos-1], route[pos], route[pos+1]
             original = data.dist_matrix[prev][curr] + data.dist_matrix[curr][next_]
             detour = data.dist_matrix[prev][next_]
-            energy_cost[(route_idx, pos)] = original - detour  # 存储差值
+            energy_cost[(route_idx, pos)] = original - detour 
     
-    # 2. 按能耗差降序排序，并分组处理
+    # 2. 按能耗差降序排序
     sorted_items = sorted(energy_cost.items(), key=lambda x: -x[1])[:q]
     
-    # 3. 按路径分组并从后往前移除
     removal_plan = defaultdict(list)
     for (route_idx, pos), _ in sorted_items:
         removal_plan[route_idx].append(pos)
@@ -35,22 +58,19 @@ def worst_energy_remove(data, cfg, solution, q=5):
     destroyed = copy.deepcopy(solution)
     removed = []
     
-    # 4. 执行实际移除操作
+    # 3. 执行实际移除操作
     for route_idx in removal_plan:
-        # 必须按逆序移除，避免索引失效
         for pos in sorted(removal_plan[route_idx], reverse=True):
-            # 二次验证路径长度
-            if 1 <= pos < len(destroyed[route_idx])-1:
-                removed.append(destroyed[route_idx].pop(pos))
+            removed.append(destroyed[route_idx].pop(pos))
     
-    # 5. 路径格式强制修正
+    # 4. 路径格式安全兜底
     for route in destroyed:
         if len(route) < 2 or route[0] != data.depot_id or route[-1] != data.depot_id:
             route[:] = [data.depot_id, data.depot_id]
     
-    return destroyed, removed[:q]  # 返回至多q个移除节点
+    return destroyed, removed
 
-def underutilized_vehicle_destroy(data, cfg, solution, q=1):
+def underutilized_vehicle_destroy(data, cfg, solution, q=2):
     """
     破坏算子：破坏利用率低的车辆路径。
     :param data: 问题数据

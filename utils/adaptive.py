@@ -19,7 +19,7 @@ def update_weights(destroy_w, repair_w, di, ri, improvement):
         repair_w[ri] *= 0.9
 
 def temperature(iteration):
-    return 1000.0 * (0.95 ** iteration)
+    return 1000.0 * (0.97 ** iteration)
 
 def acceptance_criterion(new_cost, current_cost, temp):
     return (new_cost < current_cost) or (random.random() < math.exp((current_cost - new_cost)/temp))

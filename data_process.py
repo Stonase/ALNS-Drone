@@ -13,7 +13,7 @@ def load_data(file_path: str) -> VRPData:
     """
     data = VRPData()
     base_dir = Path(__file__).resolve().parent
-    data_path = base_dir / "data" / "C101_Strategy2_Ring.txt"
+    data_path = base_dir / "data" / "C101_Strategy1_Centers.txt"
     # 原始数据读取
     raw_df = pd.read_csv(data_path)
     data.node_df = raw_df

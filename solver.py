@@ -4,6 +4,7 @@ from .operators.repair_ops import REPAIR_OPERATORS
 from .operators.local_search import local_search_2opt, local_search_prune_stations
 from .utils.helpers import solution_cost, handle_unassigned_customers, rearrange_empty_vehicles
 from .utils.adaptive import select_operator, update_weights, acceptance_criterion, temperature
+import random
 
 class ALNSSolver:
     def __init__(self, data, config):
@@ -26,10 +27,14 @@ class ALNSSolver:
         for iter in range(self.cfg.max_iter):
             d_idx = select_operator(self.destroy_weights)
             r_idx = select_operator(self.repair_weights)
+            
+            q = random.randint(int(0.15 * len(self.data.customer_ids)), int(0.3 * len(self.data.customer_ids)))
+
             destroyed, removed = self.destroy_ops[d_idx](self.data, self.cfg, self.current_solution)
             new_solution = self.repair_ops[r_idx](self.data, self.cfg, destroyed, removed)
 
             new_solution = local_search_2opt(self.data, self.cfg, new_solution)
+
             new_solution = local_search_prune_stations(self.data, self.cfg, new_solution)
 
             #解的后处理（含重新排列解）
